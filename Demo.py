@@ -3,6 +3,16 @@ from PIL import Image
 import cv2
 from plantcv import plantcv as pcv
 import os
+import pandas as pd
+from openpyxl import load_workbook
+
+
+df = pd.DataFrame(  #creates a blank excel sheet with these titles
+    {'Q1_size': (), 'Q2_size': (), 'Q3_size': (), 'Q4_size': ()})
+writer = pd.ExcelWriter("Demo.xlsx", engine='openpyxl')
+df.to_excel(writer, index=False, header=True, startcol=0)
+writer.save()
+
 
 img = Image.open("DemoImage.JPG")
 # img.show() shows image
@@ -25,7 +35,7 @@ cv2.imwrite("Final_threshold.png", Threshold)  # saves threshold with fill chang
 dire = os.getcwd()
 path = dire + '/photo_dump'
 try:
-    os.makedirs(path) # so all the pics don't flood our main dir
+    os.makedirs(path)  # so all the pics don't flood our main dir
 except OSError:
     pass
 img = Image.open("Cropped_plate.png")
@@ -81,12 +91,59 @@ for i in range(0, 8):
         width_start = width_start + sizeX
         width_end = width_end + sizeX
 
-# now time to determine size
+connectivity = 8
+output = cv2.connectedComponentsWithStats(Threshold, connectivity)  # Will determine the size of our clusters
+
+circle_me = cv2.imread("Cropped_plate.png")
+
+num_labels = output[0]
+labels = output[1]
+stats = output[2]  # This one will give us area
+centroids = output[3]  # this one will give us loaction of cell
+
+for i in range(0, len(stats)):
+    if stats[i, cv2.CC_STAT_AREA] >= 3000 and stats[i,cv2.CC_STAT_AREA] <= 15000:
+        radius = 65
+        thickness = 2
+        color = (255, 0, 0)  # blue
+        centroids_int = int(centroids[i][0]), int(centroids[i][1])  # cv2.circle uses ints not floats so convert
+        cv2.circle(circle_me, centroids_int, radius, color, thickness)  # circles where different sizes are
+
+cv2.imwrite("circle_me.png", circle_me)  # saves this circled image
+
+
+# now time to determine size for each cluster
 for c in range(0, 96):  # 96 because that is how many images we have to process
     CC_image = cv2.imread(os.path.join(path, "Cluster_threshold.%d.png" % c), cv2.IMREAD_UNCHANGED)
     circle_cell = cv2.imread(os.path.join(path, "Cluster.%d.png" % c))
 
     connectivity = 8  # either 4 or 8
     output = cv2.connectedComponentsWithStats(CC_image, connectivity)  # Will determine the size of our clusters
-    
+
+    num_labels = output[0]
+    labels = output[1]
+    stats = output[2]
+    centroids = output[3]
+    area_array = []
+
+
+    for i in range(0, len(stats)):
+        if stats[i, cv2.CC_STAT_AREA] <= 15000:
+            area_array.append(stats[i, cv2.CC_STAT_AREA]) #appends the area of each cell in the cluster to an array
+    print(area_array)
+
+    df = pd.DataFrame(
+        {'Q1_size': (area_array[0]), 'Q2_size': (area_array[1]),
+             'Q3_size': (area_array[2]), 'Q4_size': (area_array[3])}, index=[0])
+    writer = pd.ExcelWriter('Demo.xlsx', engine='openpyxl')
+    writer.book = load_workbook('Demo.xlsx')
+    writer.sheets = dict((ws.title, ws) for ws in writer.book.worksheets)
+    reader = pd.read_excel(r'Demo.xlsx')
+    df.to_excel(writer, index=False, header=False, startcol=0, startrow=len(reader) + 1)
+    writer.close()
+
+
+
+
+
 
